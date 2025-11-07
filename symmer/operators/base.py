@@ -2230,6 +2230,105 @@ class QuantumState:
             ax.set_yscale('log')
 
         return (ax)
+    def stab_renyi_entropy(self, order: int=2, filtered : bool = False, sampling : bool = False, n_samples : int= 1e6):
+        """Calculates the stabilizer Renyi entropy of the state. See arXiv:2106.12567 for details.
+        
+        Args:
+        order (int, optional): the order of SRE to calculate. Default is 2.
+        filtered (bool, optional): whether to calculate the filtered stabilizer Renyi entropy by excluding the identity. See arXiv:2312.11631. Default is False.
+        sampling (bool, optional): (currently experimental) whether to use a sampling approach based on the Metropolis-Hastings algorithm to calculate the SRE. See arXiv:2312.11631. Default is False. 
+        n_samples (int, optional): if using a sampling approach, the number of samples to use. Default is 1e6.
+        return_xi_vec (bool, optional): whether to also return the vector of probabilities. Defaullt is False.
+
+        Returns:
+        Mq: the calculated stabilizer Renyi entropy
+        """
+        zeta=0
+        n_qubits=self.n_qubits
+        if n_qubits > 12 and not sampling:
+            print("Warning: Direct computation for large states may take an extremely long time!")
+
+        # still experimental so don't really trust this
+        if sampling:
+            print("Warning: Sampling is still experimental!")
+            loop=True
+            rng = np.random.default_rng()
+            pauli_list=[]
+            prob_list=[]
+
+            # find starting state which has high enough probability
+            while loop:
+                symp_vec=rng.integers(2, size=2*n_qubits)
+                # make sure we don't start in the identity state because that will over-sample
+                if not (symp_vec==np.zeros(2*n_qubits)):
+                    pauli_this=PauliwordOp(symp_matrix=symp_vec,coeff_vec=[1])
+                    p_this=np.real(self.dagger * pauli_this * self)**2
+                    if p_this > 1e-8:
+                        loop=False
+
+            # Metropolis-Hastings algorithm
+            for i in range(int(n_samples)):
+                # add current operator to list
+                pauli_list.append(pauli_this)
+                prob_list.append(p_this)
+
+                # generate hopping op
+                iter_vec=np.zeros(2*self.n_qubits,dtype=bool)
+                [int1,int2]=rng.integers(low=1,high=2*n_qubits,size=2)
+                iter_vec[int1]=1
+                iter_vec[int2]=1
+                iter_op=PauliwordOp(symp_matrix=iter_vec,coeff_vec=[1])
+
+                # generate candidate next
+                pauli_next=pauli_this * iter_op
+                # if we'd be hopping to the identity, hop again (otherwise the identity gets over sampled)
+                if (pauli_next.symp_matrix==np.zeros(2*n_qubits,dtype=bool)).all():
+                    pauli_next=iter_op
+
+                p_next = np.real(self.dagger * pauli_next * self)**2
+                
+                
+
+                # decide whether to hop or not
+                hop_prob = min(p_next/p_this,1)
+                rand_num=rng.random()
+                if rand_num<=hop_prob:
+                    pauli_this=pauli_next
+                    p_this = p_next
+
+            # turn Pauli prob list into zeta
+            zeta = sum([p**(order-1) for p in prob_list])
+            if not filtered:
+                zeta+=1/(2**n_qubits)
+        else:
+            symp_list=[list(chain.from_iterable(ps)) for ps in product([[0,0],[0,1],[1,0],[1,1]],repeat=n_qubits)]
+            for symp in symp_list:
+                pauli_word=PauliwordOp(symp_matrix=symp,coeff_vec=[1])
+                exval=np.real(self.dagger * pauli_word * self)
+                zeta +=exval**(2*order)/(2**n_qubits)
+            if filtered:
+                zeta-=1/(2**n_qubits)
+        Mq=-np.log2(zeta)/(order-1)
+        return Mq
+    
+    def stab_linear_entropy(self):
+        """Calculates the stabilizer linear entropy of the state. See arXiv:2106.12567 for details.
+        
+        Args:
+        return_xi_vec (bool, optional): whether to also return the vector of probabilities. Defaullt is False.
+
+        Returns:
+        Mlin: the calculated stabilizer linear entropy
+        """
+        zeta=0
+        n_qubits=self.n_qubits
+        symp_list=[list(chain.from_iterable(ps)) for ps in product([[0,0],[0,1],[1,0],[1,1]],repeat=n_qubits)]
+        for symp in symp_list:
+            pauli_word=PauliwordOp(symp_matrix=symp,coeff_vec=[1])
+            exval=np.real(self.dagger * pauli_word * self)
+            zeta +=exval**(4)
+        Mlin=1-zeta/(2**n_qubits)
+        return Mlin
 
 
 def get_PauliwordOp_projector(projector: Union[str, List[str], np.array]) -> "PauliwordOp":
@@ -2509,102 +2608,3 @@ def change_of_basis_XY_to_Z(P_op: PauliwordOp) -> PauliwordOp:
 
     return change_basis
 
-def stab_renyi_entropy(self, order: int=2, filtered : bool = False, sampling : bool = False, n_samples : int= 1e6):
-    """Calculates the stabilizer Renyi entropy of the state. See arXiv:2106.12567 for details.
-    
-    Args:
-    order (int, optional): the order of SRE to calculate. Default is 2.
-    filtered (bool, optional): whether to calculate the filtered stabilizer Renyi entropy by excluding the identity. See arXiv:2312.11631. Default is False.
-    sampling (bool, optional): (currently experimental) whether to use a sampling approach based on the Metropolis-Hastings algorithm to calculate the SRE. See arXiv:2312.11631. Default is False. 
-    n_samples (int, optional): if using a sampling approach, the number of samples to use. Default is 1e6.
-    return_xi_vec (bool, optional): whether to also return the vector of probabilities. Defaullt is False.
-
-    Returns:
-    Mq: the calculated stabilizer Renyi entropy
-    """
-    zeta=0
-    n_qubits=self.n_qubits
-    if n_qubits > 12 and not sampling:
-        print("Warning: Direct computation for large states may take an extremely long time!")
-
-    # still experimental so don't really trust this
-    if sampling:
-        print("Warning: Sampling is still experimental!")
-        loop=True
-        rng = np.random.default_rng()
-        pauli_list=[]
-        prob_list=[]
-
-        # find starting state which has high enough probability
-        while loop:
-            symp_vec=rng.integers(2, size=2*n_qubits)
-            # make sure we don't start in the identity state because that will over-sample
-            if not (symp_vec==np.zeros(2*n_qubits)):
-                pauli_this=PauliwordOp(symp_matrix=symp_vec,coeff_vec=[1])
-                p_this=np.real(self.dagger * pauli_this * self)**2
-                if p_this > 1e-8:
-                    loop=False
-
-        # Metropolis-Hastings algorithm
-        for i in range(int(n_samples)):
-            # add current operator to list
-            pauli_list.append(pauli_this)
-            prob_list.append(p_this)
-
-            # generate hopping op
-            iter_vec=np.zeros(2*self.n_qubits,dtype=bool)
-            [int1,int2]=rng.integers(low=1,high=2*n_qubits,size=2)
-            iter_vec[int1]=1
-            iter_vec[int2]=1
-            iter_op=PauliwordOp(symp_matrix=iter_vec,coeff_vec=[1])
-
-            # generate candidate next
-            pauli_next=pauli_this * iter_op
-            # if we'd be hopping to the identity, hop again (otherwise the identity gets over sampled)
-            if (pauli_next.symp_matrix==np.zeros(2*n_qubits,dtype=bool)).all():
-                pauli_next=iter_op
-
-            p_next = np.real(self.dagger * pauli_next * self)**2
-            
-            
-
-            # decide whether to hop or not
-            hop_prob = min(p_next/p_this,1)
-            rand_num=rng.random()
-            if rand_num<=hop_prob:
-                pauli_this=pauli_next
-                p_this = p_next
-
-        # turn Pauli prob list into zeta
-        zeta = sum([p**(order-1) for p in prob_list])
-        if not filtered:
-            zeta+=1/(2**n_qubits)
-    else:
-        symp_list=[list(chain.from_iterable(ps)) for ps in product([[0,0],[0,1],[1,0],[1,1]],repeat=n_qubits)]
-        for symp in symp_list:
-            pauli_word=PauliwordOp(symp_matrix=symp,coeff_vec=[1])
-            exval=np.real(self.dagger * pauli_word * self)
-            zeta +=exval**(2*order)/(2**n_qubits)
-        if filtered:
-            zeta-=1/(2**n_qubits)
-    Mq=-np.log2(zeta)/(order-1)
-    return Mq
-    
-def stab_linear_entropy(self):
-    """Calculates the stabilizer linear entropy of the state. See arXiv:2106.12567 for details.
-    
-    Args:
-    return_xi_vec (bool, optional): whether to also return the vector of probabilities. Defaullt is False.
-
-    Returns:
-    Mlin: the calculated stabilizer linear entropy
-    """
-    zeta=0
-    n_qubits=self.n_qubits
-    symp_list=[list(chain.from_iterable(ps)) for ps in product([[0,0],[0,1],[1,0],[1,1]],repeat=n_qubits)]
-    for symp in symp_list:
-        pauli_word=PauliwordOp(symp_matrix=symp,coeff_vec=[1])
-        exval=np.real(self.dagger * pauli_word * self)
-        zeta +=exval**(4)
-    Mlin=1-zeta/(2**n_qubits)
-    return Mlin
