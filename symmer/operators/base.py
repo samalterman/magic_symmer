@@ -2260,9 +2260,9 @@ class QuantumState:
             while loop:
                 symp_vec=rng.integers(2, size=2*n_qubits)
                 # make sure we don't start in the identity state because that will over-sample
-                if not (symp_vec==np.zeros(2*n_qubits)):
+                if symp_vec.any():
                     pauli_this=PauliwordOp(symp_matrix=symp_vec,coeff_vec=[1])
-                    p_this=np.real(self.dagger * pauli_this * self)**2
+                    p_this=np.abs(self.dagger * pauli_this * self)**2
                     if p_this > 1e-8:
                         loop=False
 
@@ -2282,13 +2282,11 @@ class QuantumState:
                 # generate candidate next
                 pauli_next=pauli_this * iter_op
                 # if we'd be hopping to the identity, hop again (otherwise the identity gets over sampled)
-                if (pauli_next.symp_matrix==np.zeros(2*n_qubits,dtype=bool)).all():
-                    pauli_next=iter_op
+                #if not pauli_next.symp_matrix.any():
+                #    pauli_next=iter_op
 
-                p_next = np.real(self.dagger * pauli_next * self)**2
+                p_next = np.abs(self.dagger * pauli_next * self)**2
                 
-                
-
                 # decide whether to hop or not
                 hop_prob = min(p_next/p_this,1)
                 rand_num=rng.random()
@@ -2298,13 +2296,13 @@ class QuantumState:
 
             # turn Pauli prob list into zeta
             zeta = sum([p**(order-1) for p in prob_list])
-            if not filtered:
-                zeta+=1/(2**n_qubits)
+            #if not filtered:
+            #    zeta+=(1-zeta)/(2**n_qubits)
         else:
             symp_list=[list(chain.from_iterable(ps)) for ps in product([[0,0],[0,1],[1,0],[1,1]],repeat=n_qubits)]
             for symp in symp_list:
                 pauli_word=PauliwordOp(symp_matrix=symp,coeff_vec=[1])
-                exval=np.real(self.dagger * pauli_word * self)
+                exval=np.abs(self.dagger * pauli_word * self)
                 zeta +=exval**(2*order)/(2**n_qubits)
             if filtered:
                 zeta-=1/(2**n_qubits)
