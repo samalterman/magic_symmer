@@ -340,11 +340,17 @@ def stab_renyi_entropy(state: QuantumState, order: int=2, filtered : bool = Fals
         else:
             raise ValueError('Unrecognised approximation strategy.')
     else:
-        symp_list=[list(chain.from_iterable(ps)) for ps in product([[0,0],[0,1],[1,0],[1,1]],repeat=n_qubits)]
-        sparse_list=[PauliwordOp(symp_matrix=symp,coeff_vec=[1]).to_sparse_matrix for symp in symp_list]
-        for sparse_mat in sparse_list:
-            prob=abs((state_vec_H.dot(sparse_mat.dot(state_vec)))[0,0])**2
-            zeta +=(prob**order)/d
+        symps=product((False,True),repeat=2*n_qubits) #generate all the possible symplectic matrices
+        sparses=map(lambda symp : PauliwordOp(np.array([symp]),coeff_vec=[1]).to_sparse_matrix, symps)
+        # now we go through all of the possible symplectic matrices
+        for sparse_mat in sparses:
+            #sparse_mat=PauliwordOp(np.array([symp]),coeff_vec=[1]).to_sparse_matrix
+            zeta+=(abs((state_vec_H.dot(sparse_mat.dot(state_vec))) [0,0])**(2*order))/d
+
+        #sparse_list=[PauliwordOp(symp_matrix=symp,coeff_vec=[1]).to_sparse_matrix for symp in symp_list]
+        #for sparse_mat in sparse_mats:
+        #    prob=abs((state_vec_H.dot(sparse_mat.dot(state_vec)))[0,0])**2
+        #    zeta +=(prob**order)/d
         if filtered:
             zeta=(zeta-1/d)*d/(d-1)
     Mq=-np.log2(zeta)/(order-1)
